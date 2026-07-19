@@ -7,8 +7,35 @@ library(janitor)
 
 
 # 1. import data ---------------------------------------------------------
-# st_layers(dsn = "datos_originales/apc2023_r07.gdb")
-# st_layers(dsn = "datos_originales/hulls_consolidado_comuna.gpkg")
+# viviendas <-
+#   st_read(
+#     dsn = "datos_originales/pts_consolidado_comuna.gpkg",
+#     layer = "puntos",
+#     as_tibble = TRUE,
+#     query = "select * from puntos where region = 'r06' AND modelo = 'dbscan'"
+#     # query = "select * from puntos where region = 'r07'"
+#   ) |> 
+#   st_transform(32719
+# )
+
+viviendas <- 
+  read_rds("datos_originales/r07_dbscan.rds") |> 
+  pluck("points") |> 
+  tibble() |>
+  st_as_sf() |> 
+  filter(!is.na(cluster)) |>
+  mutate(
+    id_cluster =
+      str_c("r07_", n_comuna, "_dbscan-", str_pad(cluster, 3, pad = "0"))
+  ) |> 
+  tibble() |> 
+  rename(geometry = SHAPE) |> 
+  clean_names() |> 
+  select(-fid_via) |> 
+  st_as_sf(
+)
+
+
 redes <-
   st_read(
     dsn = "datos_originales/apc2023_r07.gdb",
@@ -19,7 +46,10 @@ redes <-
   st_cast("MULTILINESTRING") |> 
   st_cast("LINESTRING") |> 
   clean_names() |> 
-  select(-shape_length
+  select(-shape_length) |> 
+  mutate(
+    geom_vial = SHAPE,
+    fid_via = row_number()
 )
 
 cl <-
@@ -31,6 +61,26 @@ cl <-
   filter(region == "r07" & modelo == "dbscan") |> 
   select(region:id_cluster, n_puntos
 )
+
+
+# 2. atributar FID vial + cercano a viviendas ----------------------------
+viviendas <- viviendas |>
+  st_join(
+    y = redes |> select(fid_via, geom_vial),
+    join = st_nearest_feature
+  ) |>
+  rowwise() |>
+  mutate(dist_near_via = st_distance(geom_vial, geometry)[,1]) |>
+  ungroup()
+
+
+  select(-geom_vial) |>
+  cbind(extract(dem, viviendas, ID = FALSE)) |>
+  rename(POINT_Z = last_col(1)) |>
+  relocate(c(POINT_X, POINT_Y, POINT_Z, POINT_D),
+.before = last_col()) |
+ tibble() |
+  st_as_sf()
 
 
 # 2. ordenar -------------------------------------------------------------
