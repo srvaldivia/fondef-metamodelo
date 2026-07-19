@@ -3,6 +3,7 @@
 library(tidyverse)
 library(sf)
 library(janitor)
+library(mapview)
 # library(qgisprocess)
 
 
@@ -18,15 +19,28 @@ library(janitor)
 #   st_transform(32719
 # )
 
+# read_rds("datos_originales/r07_dbscan.rds") |> 
+#   pluck("points") |> 
+#   tibble() |>
+#   st_as_sf() |> 
+#   st_write(
+#   viviendas,
+#   dsn = "datos_originales/SIG_consolidados.gdb",
+#   layer = "puntos_dbscan_r07",
+#   delete_layer = TRUE
+# )
+
+
 viviendas <- 
   read_rds("datos_originales/r07_dbscan.rds") |> 
   pluck("points") |> 
   tibble() |>
   st_as_sf() |> 
-  filter(!is.na(cluster)) |>
+  filter(cluster != 0) |>
   mutate(
     id_cluster =
-      str_c("r07_", n_comuna, "_dbscan-", str_pad(cluster, 3, pad = "0"))
+      str_c("r07_", n_comuna, "_dbscan-", str_pad(cluster, 3, pad = "0")),
+      # str_c("r07_", n_comuna, "_dbscan-", cluster),
   ) |> 
   tibble() |> 
   rename(geometry = SHAPE) |> 
@@ -63,27 +77,16 @@ cl <-
 )
 
 
-# 2. atributar FID vial + cercano a viviendas ----------------------------
-viviendas <- viviendas |>
-  st_join(
-    y = redes |> select(fid_via, geom_vial),
-    join = st_nearest_feature
-  ) |>
-  rowwise() |>
-  mutate(dist_near_via = st_distance(geom_vial, geometry)[,1]) |>
-  ungroup()
 
+# 2. fix errors ----------------------------------------------------------
+## 2.1 eliminar clusters (vivienda) con menos de 20 puntos ----
+viviendas <- viviendas |> 
+  group_by(id_cluster) |>
+  mutate(n_puntos = n()) |>
+  ungroup() |> 
+  filter(n_puntos >= 20
+)
 
-  select(-geom_vial) |>
-  cbind(extract(dem, viviendas, ID = FALSE)) |>
-  rename(POINT_Z = last_col(1)) |>
-  relocate(c(POINT_X, POINT_Y, POINT_Z, POINT_D),
-.before = last_col()) |
- tibble() |
-  st_as_sf()
-
-
-# 2. ordenar -------------------------------------------------------------
 ## 2.1 reclasificar clase_comuna ----
 redes <- redes |>
   mutate(
@@ -106,6 +109,71 @@ redes <- redes |>
 
 
 
+# 3. atributar FID vial + cercano a viviendas ----------------------------
+# viviendas <- viviendas |>
+#   st_join(
+#     y = redes |> select(fid_via, geom_vial),
+#     join = st_nearest_feature
+#   ) |>
+#   rowwise() |>
+#   mutate(dist_near_via = st_distance(geom_vial, geometry)[,1]) |>
+#   ungroup()
+
+idx_nearest <- st_nearest_feature(viviendas, redes)
+viviendas <- viviendas |>
+  mutate(
+    fid_via_nearest = redes$fid_via[idx_nearest],
+    dist_near_via   = st_distance(
+      viviendas,
+      redes[idx_nearest, ],
+      by_element = TRUE
+    )
+)
+
+
+
+
+# 4. Crear nuevas geometrias cluster -------------------------------------
+## 4.1 resumir por id_cluster y fid via ----
+cluster_lineal <- viviendas |> 
+  st_drop_geometry() |> 
+  group_by(id_cluster, fid_via_nearest) |> 
+  summarise(
+    puntos = n(),
+    mean_dist = as.numeric(mean(dist_near_via, na.rm = TRUE))
+  ) |>
+  ungroup() |> 
+  left_join(
+    y = redes |> st_drop_geometry() |> select(fid_via, geom_vial),
+    by = c("fid_via_nearest" = "fid_via")
+  ) |> 
+  st_as_sf(
+)
+
+## 4.2 crear buffers rectos ----
+buff_flat_raw <-
+  st_buffer(
+    cluster_lineal,
+    dist = 50,
+    endCapStyle = "FLAT",
+)
+
+buff_flat_geom <- buff_flat_raw |> 
+  group_by(id_cluster) |> 
+  summarise(
+    n = n(),
+    geom = st_union(geom_vial)
+  ) |> 
+  ungroup() |> 
+  mutate(id_cluster = as_factor(id_cluster))
+
+mapview(
+  buff_flat_geom,
+  zcol = "id_cluster",
+  col.region = RColorBrewer::brewer.pal(12, "Set3"),
+  legend = FALSE
+)
+
 
 # 3. GIS OVERLAY ---------------------------------------------------------
 ## 3.1 INTERSECT: ejes viales y clusters ----
@@ -119,7 +187,7 @@ vial_inter_cl <-
 )
 
 
-## 3.2 SUMMARISE intersect ----
+## 3.2 SUMMARISE interseccion ejes y cluster ----
 summary_vial_inter <- vial_inter_cl |> 
   group_by(modelo, id_cluster, clase_comuna) |> 
   summarise(
