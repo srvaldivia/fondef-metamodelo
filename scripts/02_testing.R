@@ -8,72 +8,32 @@ library(mapview)
 
 
 # 1. import data ---------------------------------------------------------
-# viviendas <-
-#   st_read(
-#     dsn = "datos_originales/pts_consolidado_comuna.gpkg",
-#     layer = "puntos",
-#     as_tibble = TRUE,
-#     query = "select * from puntos where region = 'r06' AND modelo = 'dbscan'"
-#     # query = "select * from puntos where region = 'r07'"
-#   ) |> 
-#   st_transform(32719
-# )
-
-# read_rds("datos_originales/r07_dbscan.rds") |> 
-#   pluck("points") |> 
-#   tibble() |>
-#   st_as_sf() |> 
-#   st_write(
-#   viviendas,
-#   dsn = "datos_originales/SIG_consolidados.gdb",
-#   layer = "puntos_dbscan_r07",
-#   delete_layer = TRUE
-# )
-
-
 viviendas <- 
-  read_rds("datos_originales/r07_dbscan.rds") |> 
-  pluck("points") |> 
-  tibble() |>
-  st_as_sf() |> 
-  filter(cluster != 0) |>
-  mutate(
-    id_cluster =
-      str_c("r07_", n_comuna, "_dbscan-", str_pad(cluster, 3, pad = "0")),
-      # str_c("r07_", n_comuna, "_dbscan-", cluster),
+  st_read(
+    dsn = "datos_originales/dataset_base.gdb",
+    layer = "viviendas",
+    as_tibble = TRUE
   ) |> 
-  tibble() |> 
-  rename(geometry = SHAPE) |> 
-  clean_names() |> 
-  select(-fid_via) |> 
-  st_as_sf(
+  rename(geometry = SHAPE
 )
-
 
 redes <-
   st_read(
-    dsn = "datos_originales/apc2023_r07.gdb",
-    layer = "Eje_Vial",
+    dsn = "datos_originales/dataset_base.gdb",
+    layer = "redes",
     as_tibble = TRUE
   ) |> 
-  st_transform(32719) |> 
-  st_cast("MULTILINESTRING") |> 
-  st_cast("LINESTRING") |> 
-  clean_names() |> 
-  select(-shape_length) |> 
-  mutate(
-    geom_vial = SHAPE,
-    fid_via = row_number()
+  rename(geometry = SHAPE) |>
+  mutate(geom_vial = geometry
 )
 
-cl <-
+hulls <-
   st_read(
-    dsn = "datos_originales/hulls_consolidado_comuna.gpkg",
-    layer = "clusters",
+    dsn = "datos_originales/dataset_base.gdb",
+    layer = "hulls_clusters",
     as_tibble = TRUE
   ) |> 
-  filter(region == "r07" & modelo == "dbscan") |> 
-  select(region:id_cluster, n_puntos
+  rename(geometry = SHAPE
 )
 
 
