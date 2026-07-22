@@ -3,7 +3,6 @@ library(tidyverse)
 library(sf)
 library(janitor)
 library(mapview)
-library(osmdata)
 library(qgisprocess)
 
 
@@ -32,6 +31,7 @@ redes_osm <-
     layer = "red_osm",
     as_tibble = TRUE
   ) |>
+  st_transform(32719) |> 
   rename(geometry = SHAPE) |> 
   # mutate(geom_vial = geometry) |>
   st_cast("LINESTRING") |> 
@@ -56,20 +56,16 @@ redes_osm <-
         highway %in% c("cycleway", "pedestrian", "footway", "path", "bridleway", "steps") ~ "No motorizada",
         highway %in% c("construction", "proposed", "planned") ~ "Temporal",
         .default = "Otro"
-      )  
+      ),
+    jerarquia_via =
+      fct_relevel(jerarquia_via, 
+                  c("Autopista", "Troncal", "Primaria",
+                  "Secundaria", "Terciaria", "Local",
+                  "Rural", "No motorizada", "Temporal", "Otro"))
+      
 )
 
 
-
-redes_osm |> 
-  mutate(
-    jerarquia_via =)
-redes_osm |> 
-  st_drop_geometry() |>
-  count(jerarquia_via) |> 
-  print(n = 50)
-
-glimpse(redes_osm)
 # 2. fix errors ----------------------------------------------------------
 ## 2.1 eliminar clusters (vivienda) con menos de 20 puntos ----
 viviendas <- viviendas |> 
@@ -84,10 +80,16 @@ viviendas <- viviendas |>
 redes_clip <- 
   qgis_run_algorithm(
     algorithm = "native:clip",
-    INPUT     = redes_osm |> select(-geom_vial),
+    INPUT     = redes_osm,
     OVERLAY   = hulls
   ) |>
-  st_as_sf(
+  st_as_sf() |> 
+  mutate(
+    jerarquia_via =
+      fct_relevel(jerarquia_via, 
+                  c("Autopista", "Troncal", "Primaria",
+                  "Secundaria", "Terciaria", "Local",
+                  "Rural", "No motorizada", "Temporal", "Otro"))
 )
 
 
@@ -105,7 +107,7 @@ sj_redes_hull <-
 
 # 5. SUMMARISE spatial join ----------------------------------------------
 summary_vial_inter <- sj_redes_hull |> 
-  group_by(modelo, id_cluster, clase_via, geometry_cl) |> 
+  group_by(modelo, id_cluster, jerarquia_via, geometry_cl) |> 
   summarise(
     total_length_km = sum(length_via_km, na.rm = TRUE)
   ) |> 
@@ -122,16 +124,20 @@ longitud_vialidad_cl <- summary_vial_inter |>
   # select(-SHAPE) |> 
   pivot_wider(
     id_cols     = c(modelo, id_cluster, geometry_cl),
-    names_from  = clase_via,
+    names_from  = jerarquia_via,
     values_from = total_length_km,
     names_sort  = TRUE,
     values_fill = 0
-  )
+  ) |> 
+  clean_names() |> 
   rowwise() |> 
   mutate(
-    total_long_km = sum(c_across(carretera:bajo_nivel), na.rm = TRUE),
+    total_long_km = sum(c_across(autopista:temporal), na.rm = TRUE),
     .after = geometry_cl
     ) |> 
-  ungroup() |> 
-  st_cast("MULTILINESTRING"
+  ungroup(
 )
+
+mapview(longitud_vialidad_cl, zcol = "total_long_km")
+
+
